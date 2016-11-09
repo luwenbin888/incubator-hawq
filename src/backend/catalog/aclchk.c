@@ -25,6 +25,7 @@
 #include "catalog/catalog.h"
 #include "catalog/catquery.h"
 #include "catalog/dependency.h"
+
 #include "catalog/indexing.h"
 #include "catalog/gp_persistent.h"
 #include "catalog/pg_authid.h"
@@ -59,7 +60,7 @@
 #include "cdb/cdbdisp.h"
 #include "cdb/dispatcher.h"
 
-
+#define ACTION_LENGTH 12
 static void ExecGrant_Relation(InternalGrant *grantStmt);
 static void ExecGrant_Database(InternalGrant *grantStmt);
 static void ExecGrant_Fdw(InternalGrant *grantStmt);
@@ -226,7 +227,7 @@ restrict_and_check_grant(bool is_grant, AclMode avail_goptions, bool all_privs,
 	if (avail_goptions == ACL_NO_RIGHTS)
 	{
 	  if (enable_ranger) {
-	    if (pg_rangercheck(objectId, grantorId,
+	    if (pg_rangercheck(objkind, objectId, grantorId,
 	        whole_mask | ACL_GRANT_OPTION_FOR(whole_mask),
 	        ACLMASK_ANY) != ACLCHECK_OK)
 	      aclcheck_error(ACLCHECK_NO_PRIV, objkind, objname);
@@ -2248,10 +2249,445 @@ has_rolcatupdate(Oid roleid)
 	return rolcatupdate;
 }
 
+char *getRoleName(Oid role_id)
+{
+  Assert(OidIsValid(role_id));
+  int fetchCount;
+  char* role_name = caql_getcstring_plus(
+            NULL,
+            &fetchCount,
+            NULL,
+            cql("SELECT rolname FROM pg_authid "
+              " WHERE oid = :1 ",
+              ObjectIdGetDatum(role_id)));
+
+ if (role_name == NULL)
+    elog(ERROR, "oid [%u] not found in table pg_authid", role_id);
+  return role_name;
+}
+
+char *getClassNameFromOid(Oid object_oid)
+{
+  StringInfoData tname;
+  initStringInfo(&tname);
+
+  Assert(OidIsValid(object_oid));
+  char* rel_name = caql_getcstring(
+                   NULL,
+                   cql("SELECT relname FROM pg_class "
+                     " WHERE oid = :1",
+                     ObjectIdGetDatum(object_oid)));
+  if (rel_name == NULL)
+    elog(ERROR, "oid [%u] not found in table pg_class", object_oid);
+
+  int fetchCount=0;
+  Oid schema_name_oid = caql_getoid_plus(
+                     NULL,
+                     &fetchCount,
+                     NULL,
+                     cql("SELECT relnamespace FROM pg_class "
+                       " WHERE oid = :1",
+                       ObjectIdGetDatum(object_oid)));
+  if (schema_name_oid == InvalidOid)
+      elog(ERROR, "oid [%u] not found in table pg_class", object_oid);
+
+  char* schema_name= caql_getcstring(
+      NULL,
+      cql("select nspname from pg_namespace "
+        " WHERE oid = :1",
+        ObjectIdGetDatum(schema_name_oid)));
+  if (schema_name == NULL)
+      elog(ERROR, "oid [%u] not found in table pg_namespace", object_oid);
+
+  char* database_name = get_database_name(MyDatabaseId);
+  if (database_name == NULL)
+       elog(ERROR, "oid [%u] not found current database", object_oid);
+
+  appendStringInfo(&tname, database_name);
+  appendStringInfo(&tname, ".");
+  appendStringInfo(&tname, schema_name);
+  appendStringInfo(&tname, ".");
+  appendStringInfo(&tname, rel_name);
+  pfree(rel_name);
+  pfree(schema_name);
+  pfree(database_name);
+
+  return tname.data;
+}
+
+char *getSequenceNameFromOid(Oid object_oid)
+{
+  StringInfoData tname;
+  initStringInfo(&tname);
+
+  Assert(OidIsValid(object_oid));
+  char* seq_name = caql_getcstring(
+                  NULL,
+                  cql("SELECT relname FROM pg_class "
+                    " WHERE oid = :1",
+                    ObjectIdGetDatum(object_oid)));
+  if (seq_name == NULL)
+   elog(ERROR, "oid [%u] not found in table pg_class", object_oid);
+
+  int fetchCount=0;
+  Oid schema_name_oid = caql_getoid_plus(
+                    NULL,
+                    &fetchCount,
+                    NULL,
+                    cql("SELECT relnamespace FROM pg_class "
+                      " WHERE oid = :1",
+                      ObjectIdGetDatum(object_oid)));
+  if (schema_name_oid == InvalidOid)
+     elog(ERROR, "oid [%u] not found in table pg_class", object_oid);
+
+  char* schema_name= caql_getcstring(
+     NULL,
+     cql("select nspname from pg_namespace "
+       " WHERE oid = :1",
+       ObjectIdGetDatum(schema_name_oid)));
+  if (schema_name == NULL)
+     elog(ERROR, "oid [%u] not found in table pg_namespace", object_oid);
+
+  char* database_name = get_database_name(MyDatabaseId);
+  if (database_name == NULL)
+      elog(ERROR, "oid [%u] not found current database", object_oid);
+
+  appendStringInfo(&tname, database_name);
+  appendStringInfo(&tname, ".");
+  appendStringInfo(&tname, schema_name);
+  appendStringInfo(&tname, ".");
+  appendStringInfo(&tname, seq_name);
+  pfree(seq_name);
+  pfree(schema_name);
+  pfree(database_name);
+
+  return tname.data;
+}
+char *getDatabaseNameFromOid(Oid object_oid)
+{
+  Assert(OidIsValid(object_oid));
+  char* dbname = caql_getcstring(
+                   NULL,
+                   cql("SELECT datname FROM pg_database "
+                     " WHERE oid = :1",
+                     ObjectIdGetDatum(object_oid)));
+  if (dbname == NULL)
+    elog(ERROR, "oid [%u] not found in table pg_database", object_oid);
+
+  return dbname;
+}
+char *getProcNameFromOid(Oid object_oid)
+{
+  StringInfoData tname;
+  initStringInfo(&tname);
+
+  Assert(OidIsValid(object_oid));
+  char* proc_name = caql_getcstring(
+                   NULL,
+                   cql("SELECT proname FROM pg_proc "
+                     " WHERE oid = :1",
+                     ObjectIdGetDatum(object_oid)));
+  if (proc_name == NULL)
+    elog(ERROR, "oid [%u] not found in table pg_proc", object_oid);
+
+  int fetchCount=0;
+  Oid schema_name_oid = caql_getoid_plus(
+                    NULL,
+                    &fetchCount,
+                    NULL,
+                    cql("SELECT pronamespace FROM pg_proc "
+                      " WHERE oid = :1",
+                      ObjectIdGetDatum(object_oid)));
+  if (schema_name_oid == InvalidOid)
+     elog(ERROR, "oid [%u] not found in table pg_class", object_oid);
+
+  char* schema_name= caql_getcstring(
+     NULL,
+     cql("select nspname from pg_namespace "
+       " WHERE oid = :1",
+       ObjectIdGetDatum(schema_name_oid)));
+  if (schema_name == NULL)
+     elog(ERROR, "oid [%u] not found in table pg_namespace", object_oid);
+
+  char* database_name = get_database_name(MyDatabaseId);
+  if (database_name == NULL)
+      elog(ERROR, "oid [%u] not found current database", object_oid);
+
+  appendStringInfo(&tname, database_name);
+  appendStringInfo(&tname, ".");
+  appendStringInfo(&tname, schema_name);
+  appendStringInfo(&tname, ".");
+  appendStringInfo(&tname, proc_name);
+  pfree(proc_name);
+  pfree(schema_name);
+  pfree(database_name);
+
+  return tname.data;
+}
+char *getOperNameFromOid(Oid object_oid)
+{
+  Assert(OidIsValid(object_oid));
+  char* typename = caql_getcstring(
+                   NULL,
+                   cql("SELECT oprname FROM pg_operator "
+                     " WHERE oid = :1",
+                     ObjectIdGetDatum(object_oid)));
+  if (typename == NULL)
+    elog(ERROR, "oid [%u] not found in table pg_operator", object_oid);
+
+  return typename;
+}
+char *getTypeNameFromOid(Oid object_oid)
+{
+  Assert(OidIsValid(object_oid));
+  char* typename = caql_getcstring(
+                   NULL,
+                   cql("SELECT typname FROM pg_type "
+                     " WHERE oid = :1",
+                     ObjectIdGetDatum(object_oid)));
+  if (typename == NULL)
+    elog(ERROR, "oid [%u] not found in table pg_type", object_oid);
+
+  return typename;
+}
+char *getLanguageNameFromOid(Oid object_oid)
+{
+  StringInfoData tname;
+  initStringInfo(&tname);
+
+  Assert(OidIsValid(object_oid));
+  char* lang_name = caql_getcstring(
+                   NULL,
+                   cql("SELECT lanname FROM pg_language "
+                     " WHERE oid = :1",
+                     ObjectIdGetDatum(object_oid)));
+  if (lang_name == NULL)
+    elog(ERROR, "oid [%u] not found in table pg_language", object_oid);
+
+
+
+  char* database_name = get_database_name(MyDatabaseId);
+  if (database_name == NULL)
+      elog(ERROR, "oid [%u] not found current database", object_oid);
+
+  appendStringInfo(&tname, database_name);
+  appendStringInfo(&tname, ".");
+  appendStringInfo(&tname, lang_name);
+
+  pfree(lang_name);
+  pfree(database_name);
+
+  return tname.data;
+}
+char *getNamespaceNameFromOid(Oid object_oid)
+{
+
+  StringInfoData tname;
+  initStringInfo(&tname);
+
+  Assert(OidIsValid(object_oid));
+  char* schema_name = caql_getcstring(
+                   NULL,
+                   cql("SELECT nspname FROM pg_namespace "
+                     " WHERE oid = :1",
+                     ObjectIdGetDatum(object_oid)));
+  if (schema_name == NULL)
+    elog(ERROR, "oid [%u] not found in table pg_namespace", object_oid);
+
+
+  char* database_name = get_database_name(MyDatabaseId);
+  if (database_name == NULL)
+      elog(ERROR, "oid [%u] not found current database", object_oid);
+
+  appendStringInfo(&tname, database_name);
+  appendStringInfo(&tname, ".");
+  appendStringInfo(&tname, schema_name);
+
+  pfree(schema_name);
+  pfree(database_name);
+
+  return tname.data;
+}
+char *getConversionNameFromOid(Oid object_oid)
+{
+  Assert(OidIsValid(object_oid));
+  char* typename = caql_getcstring(
+                   NULL,
+                   cql("SELECT conname FROM pg_conversion "
+                     " WHERE oid = :1",
+                     ObjectIdGetDatum(object_oid)));
+  if (typename == NULL)
+    elog(ERROR, "oid [%u] not found in table pg_conversion", object_oid);
+
+  return typename;
+}
+char *getTablespaceNameFromOid(Oid object_oid)
+{
+  Assert(OidIsValid(object_oid));
+  char* typename = caql_getcstring(
+                   NULL,
+                   cql("SELECT spcname FROM pg_tablespace "
+                     " WHERE oid = :1",
+                     ObjectIdGetDatum(object_oid)));
+  if (typename == NULL)
+    elog(ERROR, "oid [%u] not found in table pg_tablespace", object_oid);
+
+  return typename;
+}
+char *getFilespaceNameFromOid(Oid object_oid)
+{
+  Assert(OidIsValid(object_oid));
+  char* typename = caql_getcstring(
+                   NULL,
+                   cql("SELECT fsname FROM pg_filespace "
+                     " WHERE oid = :1",
+                     ObjectIdGetDatum(object_oid)));
+  if (typename == NULL)
+    elog(ERROR, "oid [%u] not found in table pg_filespace", object_oid);
+
+  return typename;
+}
+char *getFilesystemNameFromOid(Oid object_oid)
+{
+  Assert(OidIsValid(object_oid));
+  char* typename = caql_getcstring(
+                   NULL,
+                   cql("SELECT fsysname FROM pg_filesystem "
+                     " WHERE oid = :1",
+                     ObjectIdGetDatum(object_oid)));
+  if (typename == NULL)
+    elog(ERROR, "oid [%u] not found in table pg_filesystem", object_oid);
+
+  return typename;
+}
+char *getFDWNameFromOid(Oid object_oid)
+{
+  Assert(OidIsValid(object_oid));
+  char* typename = caql_getcstring(
+                   NULL,
+                   cql("SELECT fdwname FROM pg_foreign_data_wrapper "
+                     " WHERE oid = :1",
+                     ObjectIdGetDatum(object_oid)));
+  if (typename == NULL)
+    elog(ERROR, "oid [%u] not found in table pg_foreign_data_wrapper", object_oid);
+
+  return typename;
+}
+char *getForeignServerNameFromOid(Oid object_oid)
+{
+  Assert(OidIsValid(object_oid));
+  char* typename = caql_getcstring(
+                   NULL,
+                   cql("SELECT srvname FROM pg_foreign_server "
+                     " WHERE oid = :1",
+                     ObjectIdGetDatum(object_oid)));
+  if (typename == NULL)
+    elog(ERROR, "oid [%u] not found in table pg_foreign_server", object_oid);
+
+  return typename;
+}
+char *getExtprotocolNameFromOid(Oid object_oid)
+{
+  Assert(OidIsValid(object_oid));
+  char* typename = caql_getcstring(
+                   NULL,
+                   cql("SELECT ptcname FROM pg_extprotocol "
+                     " WHERE oid = :1",
+                     ObjectIdGetDatum(object_oid)));
+  if (typename == NULL)
+    elog(ERROR, "oid [%u] not found in table pg_extprotocol", object_oid);
+
+  return typename;
+}
+
+char *getNameFromOid(AclObjectKind objkind, Oid object_oid)
+{
+  switch (objkind)
+  {
+    case ACL_KIND_CLASS:
+      return getClassNameFromOid(object_oid);
+    case ACL_KIND_SEQUENCE:
+      return getSequenceNameFromOid(object_oid);
+    case ACL_KIND_DATABASE:
+      return getDatabaseNameFromOid(object_oid);
+    case ACL_KIND_PROC:
+      return getProcNameFromOid(object_oid);
+    case ACL_KIND_OPER:
+      return getOperNameFromOid(object_oid);
+    case ACL_KIND_TYPE:
+      return getTypeNameFromOid(object_oid);
+    case ACL_KIND_CONVERSION:
+      return getConversionNameFromOid(object_oid);
+    case ACL_KIND_LANGUAGE:
+      return getLanguageNameFromOid(object_oid);
+    case ACL_KIND_NAMESPACE:
+      return getNamespaceNameFromOid(object_oid);
+    case ACL_KIND_TABLESPACE:
+      return getTablespaceNameFromOid(object_oid);
+    case ACL_KIND_FILESPACE:
+      return getFilespaceNameFromOid(object_oid);
+    case ACL_KIND_FILESYSTEM:
+      return getFilesystemNameFromOid(object_oid);
+    case ACL_KIND_FDW:
+      return getFDWNameFromOid(object_oid);
+    case ACL_KIND_FOREIGN_SERVER:
+      return getForeignServerNameFromOid(object_oid);
+    case ACL_KIND_EXTPROTOCOL:
+      return getExtprotocolNameFromOid(object_oid);
+    default:
+      elog(ERROR, "unrecognized objkind: %d",
+         (int) objkind);
+      /* not reached, but keep compiler quiet */
+      return NULL;
+  }
+}
+
+char actionName[12][12] = {"INSERT","SELECT","UPDATE", "DELETE",
+    "TRUNCATE", "REFERENCES", "TRIGGER", "EXECUTE", "USAGE",
+    "CREATE", "CREATE_TEMP", "CONNECT"};
+
+List *getActionName(AclMode mask)
+{
+  List* actions = NIL;
+  int i = 0;
+  while(mask > 0)
+  {
+    if((mask & 1) > 0)
+    {
+      char* action = palloc(sizeof(char) * ACTION_LENGTH);
+      strncpy(action, actionName[i], ACTION_LENGTH);
+      actions = lappend(actions, action);
+    }
+    mask = mask >> 1;
+    i++;
+  }
+  return actions;
+}
+
 AclResult
-pg_rangercheck(Oid table_oid, Oid roleid,
+pg_rangercheck(AclObjectKind objkind, Oid object_oid, Oid roleid,
          AclMode mask, AclMaskHow how)
 {
+  char* objectname = getNameFromOid(objkind, object_oid);
+  char* rolename = getRoleName(roleid);
+  List* actions = getActionName(mask);
+  bool isAll = (how == ACLMASK_ALL) ? true: false;
+  //parameter objkind;
+  //return func(objectname, rolename, actions, isAll);
+
+  if(objectname){
+    pfree(objectname);
+    objectname = NULL;
+  }
+  if(rolename){
+    pfree(rolename);
+    rolename = NULL;
+  }
+  if(actions){
+    list_free_deep(actions);
+    actions = NIL;
+  }
+
   return ACLCHECK_OK;
 }
 
@@ -3242,7 +3678,7 @@ pg_class_aclcheck(Oid table_oid, Oid roleid, AclMode mode)
 {
   if(enable_ranger)
   {
-    return pg_rangercheck(table_oid, roleid, mode, ACLMASK_ANY);
+    return pg_rangercheck(ACL_KIND_CLASS, table_oid, roleid, mode, ACLMASK_ANY);
   }
   else
   {
@@ -3258,7 +3694,7 @@ pg_database_aclcheck(Oid db_oid, Oid roleid, AclMode mode)
 {
   if(enable_ranger)
    {
-     return pg_rangercheck(db_oid, roleid, mode, ACLMASK_ANY);
+     return pg_rangercheck(ACL_KIND_DATABASE, db_oid, roleid, mode, ACLMASK_ANY);
    }
    else
    {
@@ -3274,7 +3710,7 @@ pg_proc_aclcheck(Oid proc_oid, Oid roleid, AclMode mode)
 {
   if(enable_ranger)
   {
-    return pg_rangercheck(proc_oid, roleid, mode, ACLMASK_ANY);
+    return pg_rangercheck(ACL_KIND_PROC, proc_oid, roleid, mode, ACLMASK_ANY);
   }
   else
   {
@@ -3290,7 +3726,7 @@ pg_language_aclcheck(Oid lang_oid, Oid roleid, AclMode mode)
 {
   if(enable_ranger)
   {
-    return pg_rangercheck(lang_oid, roleid, mode, ACLMASK_ANY);
+    return pg_rangercheck(ACL_KIND_LANGUAGE, lang_oid, roleid, mode, ACLMASK_ANY);
   }
   else
   {
@@ -3306,7 +3742,7 @@ pg_namespace_aclcheck(Oid nsp_oid, Oid roleid, AclMode mode)
 {
   if(enable_ranger)
   {
-    return pg_rangercheck(nsp_oid, roleid, mode, ACLMASK_ANY);
+    return pg_rangercheck(ACL_KIND_NAMESPACE, nsp_oid, roleid, mode, ACLMASK_ANY);
   }
   else
   {
@@ -3322,7 +3758,7 @@ pg_tablespace_aclcheck(Oid spc_oid, Oid roleid, AclMode mode)
 {
   if(enable_ranger)
   {
-    return pg_rangercheck(spc_oid, roleid, mode, ACLMASK_ANY);
+    return pg_rangercheck(ACL_KIND_TABLESPACE, spc_oid, roleid, mode, ACLMASK_ANY);
   }
   else
   {
@@ -3339,7 +3775,7 @@ pg_foreign_data_wrapper_aclcheck(Oid fdw_oid, Oid roleid, AclMode mode)
 {
   if(enable_ranger)
   {
-    return pg_rangercheck(fdw_oid, roleid, mode, ACLMASK_ANY);
+    return pg_rangercheck(ACL_KIND_FDW, fdw_oid, roleid, mode, ACLMASK_ANY);
   }
   else
   {
@@ -3356,7 +3792,7 @@ pg_foreign_server_aclcheck(Oid srv_oid, Oid roleid, AclMode mode)
 {
   if(enable_ranger)
   {
-    return pg_rangercheck(srv_oid, roleid, mode, ACLMASK_ANY);
+    return pg_rangercheck(ACL_KIND_FOREIGN_SERVER, srv_oid, roleid, mode, ACLMASK_ANY);
   }
   else
   {
@@ -3373,7 +3809,7 @@ pg_extprotocol_aclcheck(Oid ptcid, Oid roleid, AclMode mode)
 {
   if(enable_ranger)
   {
-    return pg_rangercheck(ptcid, roleid, mode, ACLMASK_ANY);
+    return pg_rangercheck(ACL_KIND_EXTPROTOCOL, ptcid, roleid, mode, ACLMASK_ANY);
   }
   else
   {
@@ -3389,7 +3825,7 @@ pg_filesystem_aclcheck(Oid fsysid, Oid roleid, AclMode mode)
 {
   if(enable_ranger)
   {
-    return pg_rangercheck(fsysid, roleid, mode, ACLMASK_ANY);
+    return pg_rangercheck(ACL_KIND_FILESYSTEM, fsysid, roleid, mode, ACLMASK_ANY);
   }
   else
   {

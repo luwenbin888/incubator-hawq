@@ -300,8 +300,26 @@ extern AclResult pg_extprotocol_nativecheck(Oid ptc_oid, Oid roleid, AclMode mod
 extern AclResult pg_filesystem_nativecheck(Oid fsys_oid, Oid roleid, AclMode mode);
 
 extern AclResult
-pg_rangercheck(Oid table_oid, Oid roleid,
+pg_rangercheck(AclObjectKind objkind, Oid table_oid, Oid roleid,
          AclMode mask, AclMaskHow how);
+extern char *getNameFromOid(AclObjectKind objkind, Oid object_oid);
+extern char *getClassNameFromOid(Oid object_oid);
+extern char *getSequenceNameFromOid(Oid object_oid);
+extern char *getDatabaseNameFromOid(Oid object_oid);
+extern char *getProcNameFromOid(Oid object_oid);
+extern char *getOperNameFromOid(Oid object_oid);
+extern char *getTypeNameFromOid(Oid object_oid);
+extern char *getLanguageNameFromOid(Oid object_oid);
+extern char *getNamespaceNameFromOid(Oid object_oid);
+extern char *getConversionNameFromOid(Oid object_oid);
+extern char *getTablespaceNameFromOid(Oid object_oid);
+extern char *getFilespaceNameFromOid(Oid object_oid);
+extern char *getFilesystemNameFromOid(Oid object_oid);
+extern char *getFDWNameFromOid(Oid object_oid);
+extern char *getForeignServerNameFromOid(Oid object_oid);
+extern char *getExtprotocolNameFromOid(Oid object_oid);
+extern List *getActionName(AclMode mask);
+extern char *getRoleName(Oid role_id);
 
 extern void aclcheck_error(AclResult aclerr, AclObjectKind objectkind,
 			   const char *objectname);

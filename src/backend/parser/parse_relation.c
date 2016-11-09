@@ -2764,7 +2764,7 @@ ExecCheckRTEPerms(RangeTblEntry *rte)
 	if (enable_ranger)
 	{
 	  /* ranger check required permission should all be approved.*/
-    if (pg_rangercheck(relOid, userid, requiredPerms, ACLMASK_ALL)
+    if (pg_rangercheck(ACL_KIND_CLASS, relOid, userid, requiredPerms, ACLMASK_ALL)
         != ACLCHECK_OK)
     {
       /*
