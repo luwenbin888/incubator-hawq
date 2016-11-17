@@ -2672,8 +2672,8 @@ pg_rangercheck(AclObjectKind objkind, Oid object_oid, Oid roleid,
   char* rolename = getRoleName(roleid);
   List* actions = getActionName(mask);
   bool isAll = (how == ACLMASK_ALL) ? true: false;
-  //parameter objkind;
-  //return func(objectname, rolename, actions, isAll);
+
+  int ret = check_privilege_from_ranger(rolename, objkind, objectname, actions, isAll);
 
   if(objectname){
     pfree(objectname);
