@@ -153,7 +153,8 @@ json_object* create_ranger_request_json(char* user, AclObjectKind kind, char* ob
             char *first = NULL; // could be a database or protocol or tablespace
             char *second = NULL; // could be a schema or language
             char *third = NULL; // could be a table or sequence or function
-            for (int idx = 0, name = strtok_r(object, ".", &ptr);
+            int idx = 0;
+            for (name = strtok_r(object, ".", &ptr);
                  name;
                  name = strtok_r(NULL, ".", &ptr), idx++)
             {
@@ -267,8 +268,9 @@ void call_ranger_rest(CURL_HANDLE curl_handle, char* request)
     {
         goto _exit;
     }
+
     /* timeout */
-    curl_easy_setopt(curl_handle, CURLOPT_TIMEOUT, 1);
+    // curl_easy_setopt(curl_handle, CURLOPT_TIMEOUT, 1);
 
     /* specify URL to get */
     curl_easy_setopt(curl_handle->curl_handle, CURLOPT_URL, "http://localhost:8089/checkprivilege");
