@@ -280,10 +280,14 @@ void call_ranger_rest(CURL_HANDLE curl_handle, char* request)
     // curl_easy_setopt(curl_handle, CURLOPT_POSTFIELDS, request);
 
     /* send all data to this function  */
+    elog(LOG, "debug xxx\n");
     curl_easy_setopt(curl_handle->curl_handle, CURLOPT_WRITEFUNCTION, write_callback);
+    elog(LOG, "debug yyy\n");
     curl_easy_setopt(curl_handle->curl_handle, CURLOPT_WRITEDATA, (void *)curl_handle);
+    elog(LOG, "debug zzz\n");
 
     res = curl_easy_perform(curl_handle->curl_handle);
+    elog(LOG, "debug ttt\n");
 
     /* check for errors */
     if(res != CURLE_OK)

@@ -585,6 +585,7 @@ cdb_setup(void)
 
 	if (Gp_role == GP_ROLE_DISPATCH)
 	{
+		elog(LOG, "cdb_setup: here\n");
 		/* check mirrored entry db configuration */
 		buildMirrorQDDefinition();
 

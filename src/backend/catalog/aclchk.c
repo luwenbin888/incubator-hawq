@@ -227,6 +227,7 @@ restrict_and_check_grant(bool is_grant, AclMode avail_goptions, bool all_privs,
 	if (avail_goptions == ACL_NO_RIGHTS)
 	{
 	  if (enable_ranger) {
+	    elog(LOG, "restrict_and_check_grant: here\n");
 	    if (pg_rangercheck(objkind, objectId, grantorId,
 	        whole_mask | ACL_GRANT_OPTION_FOR(whole_mask),
 	        ACLMASK_ANY) != ACLCHECK_OK)
@@ -2664,10 +2665,47 @@ List *getActionName(AclMode mask)
   return actions;
 }
 
+List *pg_rangercheck_batch(List *arg_list)
+{
+  List *aclresults = NIL;
+  ListCell *arg = NULL;
+  foreach(arg, arg_list) {
+    RangerPrivilegeArgs *arg_ptr = (RangerPrivilegeArgs *)lfirst(arg);
+    AclObjectKind objkind = arg_ptr->objkind;
+    Oid object_oid = arg_ptr->object_oid;
+    char *objectname = getNameFromOid(objkind, object_oid);
+    char *rolename = getRoleName(arg_ptr->roleid);
+    List* actions = getActionName(arg_ptr->mask);
+    bool isAll = (arg_ptr->how == ACLMASK_ALL) ? true: false;
+    RangerPrivilegeResults *aclresult = (RangerPrivilegeResults *) palloc(sizeof(RangerPrivilegeResults));
+    aclresult->result = check_privilege_from_ranger(rolename, objkind, objectname, actions, isAll);
+    aclresult->relOid = object_oid; 
+    aclresults = lappend(aclresults, aclresult);
+    
+    if (objectname)
+    {
+      pfree(objectname);
+      objectname = NULL;
+    }
+    if(rolename)
+    {
+      pfree(rolename);
+      rolename = NULL;
+    }
+    if(actions)
+    {
+      list_free_deep(actions);
+      actions = NIL;
+    }
+  } // foreach
+  return aclresults;
+}
+
 AclResult
 pg_rangercheck(AclObjectKind objkind, Oid object_oid, Oid roleid,
          AclMode mask, AclMaskHow how)
 {
+  elog(LOG, "pg_rangercheck: here\n");
   char* objectname = getNameFromOid(objkind, object_oid);
   char* rolename = getRoleName(roleid);
   List* actions = getActionName(mask);
@@ -2690,7 +2728,6 @@ pg_rangercheck(AclObjectKind objkind, Oid object_oid, Oid roleid,
 
   return ACLCHECK_OK;
 }
-
 
 /*
  * Relay for the various pg_*_mask routines depending on object kind
@@ -3678,6 +3715,7 @@ pg_class_aclcheck(Oid table_oid, Oid roleid, AclMode mode)
 {
   if(enable_ranger)
   {
+    elog(LOG, "pg_class_aclcheck: here\n");
     return pg_rangercheck(ACL_KIND_CLASS, table_oid, roleid, mode, ACLMASK_ANY);
   }
   else
@@ -3694,6 +3732,7 @@ pg_database_aclcheck(Oid db_oid, Oid roleid, AclMode mode)
 {
   if(enable_ranger)
    {
+     elog(LOG, "pg_database_aclcheck: here\n");
      return pg_rangercheck(ACL_KIND_DATABASE, db_oid, roleid, mode, ACLMASK_ANY);
    }
    else
@@ -3710,6 +3749,7 @@ pg_proc_aclcheck(Oid proc_oid, Oid roleid, AclMode mode)
 {
   if(enable_ranger)
   {
+    elog(LOG, "pg_proc_aclcheck: here\n");
     return pg_rangercheck(ACL_KIND_PROC, proc_oid, roleid, mode, ACLMASK_ANY);
   }
   else
@@ -3726,6 +3766,7 @@ pg_language_aclcheck(Oid lang_oid, Oid roleid, AclMode mode)
 {
   if(enable_ranger)
   {
+    elog(LOG, "pg_language_aclcheck: here\n");
     return pg_rangercheck(ACL_KIND_LANGUAGE, lang_oid, roleid, mode, ACLMASK_ANY);
   }
   else
@@ -3742,6 +3783,7 @@ pg_namespace_aclcheck(Oid nsp_oid, Oid roleid, AclMode mode)
 {
   if(enable_ranger)
   {
+    elog(LOG, "pg_namespace_aclcheck: here\n");
     return pg_rangercheck(ACL_KIND_NAMESPACE, nsp_oid, roleid, mode, ACLMASK_ANY);
   }
   else
@@ -3758,6 +3800,7 @@ pg_tablespace_aclcheck(Oid spc_oid, Oid roleid, AclMode mode)
 {
   if(enable_ranger)
   {
+    elog(LOG, "pg_tablespace_aclcheck: here\n");
     return pg_rangercheck(ACL_KIND_TABLESPACE, spc_oid, roleid, mode, ACLMASK_ANY);
   }
   else
@@ -3775,6 +3818,7 @@ pg_foreign_data_wrapper_aclcheck(Oid fdw_oid, Oid roleid, AclMode mode)
 {
   if(enable_ranger)
   {
+    elog(LOG, "pg_foreign_data_wrapper_aclcheck: here\n");
     return pg_rangercheck(ACL_KIND_FDW, fdw_oid, roleid, mode, ACLMASK_ANY);
   }
   else
@@ -3792,6 +3836,7 @@ pg_foreign_server_aclcheck(Oid srv_oid, Oid roleid, AclMode mode)
 {
   if(enable_ranger)
   {
+    elog(LOG, "pg_foreign_server_aclcheck: here\n");
     return pg_rangercheck(ACL_KIND_FOREIGN_SERVER, srv_oid, roleid, mode, ACLMASK_ANY);
   }
   else
@@ -3809,6 +3854,7 @@ pg_extprotocol_aclcheck(Oid ptcid, Oid roleid, AclMode mode)
 {
   if(enable_ranger)
   {
+    elog(LOG, "pg_extprotocol_aclcheck: here\n");
     return pg_rangercheck(ACL_KIND_EXTPROTOCOL, ptcid, roleid, mode, ACLMASK_ANY);
   }
   else
@@ -3825,6 +3871,7 @@ pg_filesystem_aclcheck(Oid fsysid, Oid roleid, AclMode mode)
 {
   if(enable_ranger)
   {
+    elog(LOG, "pg_filesystem_aclcheck: here\n");
     return pg_rangercheck(ACL_KIND_FILESYSTEM, fsysid, roleid, mode, ACLMASK_ANY);
   }
   else
