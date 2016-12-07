@@ -2668,7 +2668,7 @@ List *getActionName(AclMode mask)
 List *pg_rangercheck_batch(List *arg_list)
 {
   List *aclresults = NIL;
-  ListCell *arg = NULL;
+  ListCell *arg;
   foreach(arg, arg_list) {
     RangerPrivilegeArgs *arg_ptr = (RangerPrivilegeArgs *)lfirst(arg);
     AclObjectKind objkind = arg_ptr->objkind;
@@ -2681,7 +2681,6 @@ List *pg_rangercheck_batch(List *arg_list)
     aclresult->result = check_privilege_from_ranger(rolename, objkind, objectname, actions, isAll);
     aclresult->relOid = object_oid; 
     aclresults = lappend(aclresults, aclresult);
-    
     if (objectname)
     {
       pfree(objectname);
@@ -2698,6 +2697,7 @@ List *pg_rangercheck_batch(List *arg_list)
       actions = NIL;
     }
   } // foreach
+  elog(LOG, "hah1%d\n", arg_list->length);
   return aclresults;
 }
 
@@ -2725,7 +2725,6 @@ pg_rangercheck(AclObjectKind objkind, Oid object_oid, Oid roleid,
     list_free_deep(actions);
     actions = NIL;
   }
-
   return ACLCHECK_OK;
 }
 

@@ -2712,22 +2712,20 @@ warnAutoRange(ParseState *pstate, RangeVar *relation, int location)
 void
 ExecCheckRTPerms(List *rangeTable)
 {
-  /*
   if (enable_ranger)
   {
     ExecCheckRTPermsWithRanger(rangeTable);
     return;
   }
-  */
+  /*
 	ListCell   *l;
-
   int i = 0;
 	foreach(l, rangeTable)
 	{
-	  printf("xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx%d\n", i);
 		ExecCheckRTEPerms((RangeTblEntry *) lfirst(l));
 	  i ++;
 	}
+	*/
 }
 
 /*
@@ -2741,11 +2739,11 @@ ExecCheckRTPermsWithRanger(List *rangeTable)
   ListCell *l;
   foreach(l, rangeTable)
   {
-    RangeTblEntry *rte = (RangeTblEntry *) lfirst(l);
 
     AclMode requiredPerms;
     Oid relOid;
     Oid userid;
+    RangeTblEntry *rte = (RangeTblEntry *) lfirst(l);
 
     if (rte->rtekind != RTE_RELATION)
       return;
@@ -2767,10 +2765,11 @@ ExecCheckRTPermsWithRanger(List *rangeTable)
   } // foreach
 
   // ranger ACL check with package Oids
-  List *aclresults = pg_rangercheck_batch(ranger_check_args);
+  List *aclresults = NIL;
+  aclresults = pg_rangercheck_batch(ranger_check_args);
   if (aclresults == NIL)
   {
-    printf("bugggggggggggggggg\n");
+    elog(ERROR, "ERROR\n");
     return;
   }
 
@@ -2778,7 +2777,7 @@ ExecCheckRTPermsWithRanger(List *rangeTable)
   ListCell *result;
   foreach(result, aclresults)
   {
-    RangerPrivilegeResults *result_ptr = (RangerPrivilegeResults *)lfirst(result);
+    RangerPrivilegeResults *result_ptr = (RangerPrivilegeResults *) lfirst(result);
     if(result_ptr->result != RANGERCHECK_OK)
     {
       Oid relOid = result_ptr->relOid;

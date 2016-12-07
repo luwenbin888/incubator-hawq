@@ -300,6 +300,7 @@ extern AclResult pg_foreign_server_nativecheck(Oid srv_oid, Oid roleid, AclMode 
 extern AclResult pg_extprotocol_nativecheck(Oid ptc_oid, Oid roleid, AclMode mode);
 extern AclResult pg_filesystem_nativecheck(Oid fsys_oid, Oid roleid, AclMode mode);
 
+extern List *pg_rangercheck_batch(List *);
 extern AclResult
 pg_rangercheck(AclObjectKind objkind, Oid table_oid, Oid roleid,
          AclMode mask, AclMaskHow how);
